@@ -1,6 +1,6 @@
-﻿TRY{
+TRY{
     #Получаем список файлов для генерации отчета
-    $workDir = 'D:\Golikov_A_S\WorkProjects\PowerShell\ReportRobot\'
+    $workDir = 'D:\ReportRobot\'
     $reportGenerator = $workdir + 'ReportGenerator\unireport.exe'
     $generatorArgs = ' '
     $reportConfigs = $workDir + 'ReportSettings\ON\*'
@@ -9,15 +9,15 @@
 
     $logPath = $workdir+ "ReportRobot.log"
     #Если нет лога создаем его
-    if (!(Test-Path -path ($logPath))) {New-Item ($logPath) -Type File} 
+    if ( !(Test-Path -path ($logPath)) ) {New-Item ($logPath) -Type File} 
+                        
 
-    
-    If (!(Test-Path $reportsConfigs)) {
+    If (Test-Path $reportConfigs) {
         foreach ($dilerFolder in Get-item -Path ($reportConfigs))   {
             "{0} : Start generation for Diler : {1}" -f (Get-Date).Tostring(),$dilerFolder  | Out-File -FilePath $logPath -Append
             $doWeek = ($dilerFolder.FullName +'\DayOfWeek\' + ((get-Date).DayOfWeek.value__)+ '\*.ini')
             
-            if ( (Test-Path $doWeek) -and (Get-item -Path $doWeek).count -gt 0) {#Если есть папка DayOfWeek она является предпочитетльной.
+            if ( (Test-Path $doWeek) -and [bool](Get-item -Path $doWeek)) {#Если есть папка DayOfWeek она является предпочитетльной.
                 "{0} : doWeek : {1}" -f (Get-Date).Tostring(),$doWeek.count  | Out-File -FilePath $logPath -Append
                
                foreach ( $iniFile in (Get-Item -path $doWeek) ) {
@@ -26,12 +26,15 @@
                }
 
             } else { #Если на текущий день нет особы отчетов то генерируем по файлам лежащим в корневой директории поставщика
-                $doDaily = Get-Item -Path ($dilerFolder.FullName+'\*.ini')
-                "{0} : doDaily : {1}" -f (Get-Date).Tostring(),$doDaily.count  | Out-File -FilePath $logPath -Append
+                $doDaily = $dilerFolder.FullName+'\*.ini'
                 
-                foreach ($iniFile in $doDaily) {
-                    Copy-Item -Path $iniFile.FullName -Destination ((get-item -Path $reportGenerator).DirectoryName + '\report.ini')
-                    #Start-Process -FilePath $reportGenerator -ArgumentList $generatorArgs -Wait
+                if ( [bool](Get-item -Path $doDaily)) {
+                    "{0} : doDaily : {1}" -f (Get-Date).Tostring(),$doDaily.count  | Out-File -FilePath $logPath -Append
+                    
+                    foreach ($iniFile in (Get-Item -path $doDaily) ) {
+                        Copy-Item -Path $iniFile.FullName -Destination ((get-item -Path $reportGenerator).DirectoryName + '\report.ini')
+                        Start-Process -FilePath $reportGenerator -ArgumentList $generatorArgs -Wait
+                   }
                }
             }
 
