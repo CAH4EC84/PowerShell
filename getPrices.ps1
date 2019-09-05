@@ -1,4 +1,4 @@
-﻿function getMail { #Обрабочик прайсов с почты
+function getMail { #Обрабочик прайсов с почты
 
     $sqlCmd.CommandText = "select id,node,fromPath,toPath,toDir,isArc, vcs from [IncomingPrices] where enabled = 1  and  type = 'mail' order by id desc"
     $sqlAdapter =  New-Object System.Data.SqlClient.SqlDataAdapter $sqlCmd
@@ -25,8 +25,8 @@
                                  ( ($validRow[0].isArc -eq 0) -and ($attachExtension -in ($validFormats)) ) -or ( ($validRow[0].isArc -eq 1) -and ($attachExtension -in ($validArcFormats)) )
                                ) {
                                      #Если нет  целевой и архивной папки то создаем
-                                    if (!(Test-Path -path ($validRow.toDir + "\" + $cDate + "\"))) {
-                                        New-Item ($validRow.toDir + "\" + $cDate  + "\") -Type Directory
+                                    if (!(Test-Path -path ($validRow.toDir))) {
+                                        New-Item ($validRow.toDir) -Type Directory
                                     }
                                     "MAIL valid attachment found  id: {0} attach: {1}" -f $validRow.id,$attachExtension  | Out-File -FilePath $logPath -Append
                                     savePrice -from "MAIL" -refreshed 1
@@ -35,7 +35,7 @@
                     }
                 } 
                 
-                $item.move($arcMailFolder)
+                $item.delete()
             } else {
                 "MAIL no attachments item.TO {0}" -f $item.to  | Out-File -FilePath $logPath -Append
                 ($item).delete()
@@ -58,17 +58,11 @@ function getFtp {#Обрабочик прайсов с фтп
         } 
         ELSE {#Регистрируем в логе делаем пометку и переходим к следующей строке
            "FTP Check: {0} : {1} File not found " -f $row.id, $row.fromPath | Out-File -FilePath $logPath -Append
-
            continue 
         }
 
-        #Если нет  целевой и архивной папки то создаем
-        if (!(Test-Path -path ($row.toDir + "\" + $cDate + "\"))) {
-            New-Item ($row.toDir + "\" + $cDate  + "\") -Type Directory
-        }
-
-        #Проверяем есть более старый файл в целевой папке и перемещаем его в архивную
-        
+        #Если нет  целевой папки то создаем
+        if (!(Test-Path -path ($row.toDir))) {New-Item ($row.toDir) -Type Directory}
 
         #Сохраняем \ распаковываем \ переименовываем новый прайс в целевой папке 
         savePrice -from "FTP" -refreshed (rotateArc)
@@ -88,18 +82,13 @@ function rotateArc {
       #если на фтп есть более новый
       IF ( (Get-Item $arcFile).LastWriteTime.Ticks -lt (Get-Item $row.fromPath).LastWriteTime.Ticks ) {
         "FTP Check: {0} : {1} External file refreshed " -f $row.id, $row.fromPath | Out-File -FilePath $logPath -Append
-        Copy-Item -Path $arcFile -Destination (`
-                                                $row.toDir +'\' + $cDate +'\' `
-                                                +(Get-Item $arcFile).LastWriteTime.Ticks `
-                                                +"_" + (Get-Item $row.fromPath).Name )  
         return 1
       } Else {
         "FTP Check: {0} : {1} External file has same date " -f $row.id, $row.fromPath | Out-File -FilePath $logPath -Append
         return 0 
       }
 
-    } Else { #Если архивного нет то копируем
-        
+    } Else { 
         "FTP Check: {0} : {1} No Internal copy External file" -f $row.id, $row.fromPath | Out-File -FilePath $logPath -Append
         return 1
     }
@@ -129,10 +118,7 @@ function savePrice ([string] $from,[int] $refreshed) {
         $tmpFile = ($validRow.toDir+'\Archive.'+$attachExtension)
         $attach.SaveAsFile($tmpFile)
         "MAIL attachment saved  id: {0} attach: {1}" -f $validRow.id,$tmpFile  | Out-File -FilePath $logPath -Append
-        Copy-Item -Path $tmpFile -Destination ($validRow.toDir +'\' + $cDate +'\' `
-                                                +(Get-Item $tmpFile).LastWriteTime.Ticks `
-                                                +"_" + (Get-Item $tmpFile).Name )
-        
+                
         if ($validRow.isArc -eq 1) {
             expandArchive -Path $tmpFile  -Destination $validRow.toDir
             Move-Item -Path ($validRow.toDir+'\*.' +(Split-Path -Path $validRow.toPath -Leaf).Split('.')[-1]) $validRow.toPath -Force
@@ -156,7 +142,7 @@ function expandArchive([string]$Path, [string]$Destination) {
 		"`"-o$($Destination)`""		## set Output directory
 		"`"$($Path)`""				## <archive_name>
 	)
-	&$7zApp $7zArgs > null
+	&$7zApp $7zArgs
 }
 
 function updateTimeOf ([int] $rowId) {
@@ -165,15 +151,24 @@ function updateTimeOf ([int] $rowId) {
     $rowsAffected = $sqlCmd.ExecuteNonQuery()
 }
 
+function cleanMail ([int] $delayHours) {
+    foreach ($item in $trashMailFolder.Items) {
+        if ($item.ReceivedTime -le (Get-Date).AddHours($delayHours) ) {
+            $item.delete()
+        }
+
+    }
+}
+
 
 #Основной модуль обработки вхрдящих прайсов#
 TRY {
 
 #Пременные
-$LOCAL:7zApp = "c:\Priceimp\7-Zip\7z.exe"
+$LOCAL:7zApp = "D:\7-Zip\7z.exe"
 
 $LOCAL:cDate =  (Get-Date -UFormat "%Y.%m.%d")
-$LOCAL:logPath = "C:\PriceImp\#PriceRobot\Prices.log"
+$LOCAL:logPath = "D:\PriceRobot\Prices.log"
 #Если нет лога создаем его
 if (!(Test-Path -path ($logPath))) {New-Item ($logPath) -Type File} 
 
@@ -182,7 +177,7 @@ if (!(Test-Path -path ($logPath))) {New-Item ($logPath) -Type File}
 $LOCAL:sqlServer = "meddb"
 $LOCAL:sqlCatalog = "medisTest"
 $LOCAL:sqlLogin = "sa"
-$LOCAL:sqlPassw = "supersecretpassword"
+$LOCAL:sqlPassw = "supertrimcreator"
 $LOCAL:sqlConnection = New-Object System.Data.SqlClient.SqlConnection
 $LOCAL:sqlConnection.ConnectionString = "Server=$SqlServer; Database=$SqlCatalog; User ID=$SqlLogin; Password=$SqlPassw;"
 $LOCAL:sqlConnection.Open()
@@ -190,11 +185,11 @@ $LOCAL:sqlCmd = $SqlConnection.CreateCommand()
 $LOCAL:dataSet = New-Object System.Data.DataSet
 
 #Outlook
-$LOCAL:outlook = New-Object -ComObject Outlook.Application
+$LOCAL:outlook = [Runtime.InteropServices.Marshal]::GetActiveObject("Outlook.Application") 
 $LOCAL:nameSpace = $outlook.GetNameSpace("MAPI")
 $LOCAL:accFolder = $nameSpace.Folders("medlineuser@price.medline.spb.ru")
-$LOCAL:inboxFolder = $accFolder.folders("Входящие")
-$LOCAL:arcMailFolder = $accFolder.folders("Archive")
+$LOCAL:inboxFolder = $accFolder.folders("µù襢)
+$LOCAL:trashMailFolder = $accFolder.folders("Ӥ૥�墩
 $LOCAL:validFormats = 'dbf','xls','xlsx'
 $LOCAL:validArcFormats = 'zip','rar','7z'
 
@@ -204,16 +199,17 @@ getFtp
 
 
 getMail
+cleanMail -delayHours -8
 "MAIL Finished at : {0}" -f (Get-Date).Tostring()  | Out-File -FilePath $logPath -Append
 
 }
 
 Catch [system.exception] { 
-    "FTP Some error {0} `t {1}" -f $Error[0],$Error[0].ScriptStackTrace | Out-File -FilePath $logPath -Append }
+    "Some error {0} `t {1}" -f $Error[0],$Error[0].ScriptStackTrace | Out-File -FilePath $logPath -Append }
 Finally {
     $dataSet.Clear()
     $SqlConnection.close()
-    $outLook=""
-    $nameSpace=""
+	[System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook)
+	Remove-Variable outlook
     "Script stop at {0}" -f (Get-Date).Tostring()  | Out-File -FilePath $logPath -Append
 }
